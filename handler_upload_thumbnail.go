@@ -7,7 +7,9 @@ import (
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
 	"io"
-	"encoding/base64"
+	"os"
+	"path/filepath"
+	"strings"
 )
 
 func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Request) {
@@ -47,11 +49,11 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 
 	defer file.Close()
 
-	imageData, err := io.ReadAll(file)
-	if err != nil{
-		respondWithError(w, http.StatusBadRequest, "Unable to read image data", err)
-		return
-	}
+	//imageData, err := io.ReadAll(file)
+	//if err != nil{
+	//	respondWithError(w, http.StatusBadRequest, "Unable to read image data", err)
+	//	return
+	//}
 	
 	// get the videos metadata
 	vidData, err := cfg.db.GetVideo(videoID)
@@ -66,14 +68,33 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	}
 	
 	//convert the image data
-	encodedImageData := base64.StdEncoding.EncodeToString(imageData)
-	dataUrl := fmt.Sprintf("data:%v;base64,%v", header.Header.Get("Content-Type"), encodedImageData)
+	//encodedImageData := base64.StdEncoding.EncodeToString(imageData)
+	//dataUrl := fmt.Sprintf("data:%v;base64,%v", header.Header.Get("Content-Type"), encodedImageData)
+	
+	//get the header extension
+	ext := strings.Split(header.Header.Get("Content-Type"), "/")[1]
+	fmt.Println(ext)
+	fileName := fmt.Sprintf("%v.%v", vidData.ID, ext)
+	newFilePath := filepath.Join(cfg.assetsRoot, fileName)
+	fmt.Println(newFilePath)
+	f, err := os.Create(fileName)
+	if err != nil{
+		respondWithError(w, http.StatusBadRequest, "Unable to make file at this path", err)
+		return
+	}
 
+	//copy the contents of the old file into the new one 
+	_, err = io.Copy(f, file)
+	if err != nil{
+		respondWithError(w, http.StatusBadRequest, "Unable to copy over the file", err)
+		return
+	}
 	//create the new thumbnail struct 
-	newThumbnail := thumbnail{data: imageData, mediaType: header.Header.Get("Content-Type")}
+	//newThumbnail := thumbnail{data: imageData, mediaType: header.Header.Get("Content-Type")}
 	//videoThumbnails[vidData.ID] = newThumbnail
-
-	vidData.ThumbnailURL = &dataUrl
+	newThumbnail := fmt.Sprintf("http://localhost:%v/%v", cfg.port, newFilePath)
+	fmt.Println(newThumbnail)
+	vidData.ThumbnailURL = &newThumbnail
 	err = cfg.db.UpdateVideo(vidData)
 	
 	if err != nil{
