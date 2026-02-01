@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"mime"
 )
 
 func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Request) {
@@ -72,6 +73,15 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	//dataUrl := fmt.Sprintf("data:%v;base64,%v", header.Header.Get("Content-Type"), encodedImageData)
 	
 	//get the header extension
+	mediaType, _,  err := mime.ParseMediaType("Content-Type")
+	if err != nil{
+		respondWithError(w, http.StatusBadRequest, "could not parse media type", err)
+		return
+	}
+	if (mediaType != "image/jpeg" || mediaType != "image/png"){
+		respondWithError(w, http.StatusBadRequest, "wrong media type uploaded", nil)
+		return
+	}
 	ext := strings.Split(header.Header.Get("Content-Type"), "/")[1]
 	fmt.Println(ext)
 	fileName := fmt.Sprintf("%v.%v", vidData.ID, ext)
