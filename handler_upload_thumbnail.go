@@ -8,8 +8,6 @@ import (
 	"github.com/google/uuid"
 	"io"
 	"os"
-	"path/filepath"
-	"strings"
 	"mime"
 )
 
@@ -38,79 +36,59 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	fmt.Println("uploading thumbnail for video", videoID, "by user", userID)
 
 	// TODO: implement the upload here
-	const maxMemory =  10 << 20
+	const maxMemory = 10 << 20 // 10 MB
 	r.ParseMultipartForm(maxMemory)
 
-	// "thumbnail" should match the HTML form input name
 	file, header, err := r.FormFile("thumbnail")
-	if err != nil{
+	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Unable to parse form file", err)
 		return
 	}
-
 	defer file.Close()
 
-	//imageData, err := io.ReadAll(file)
-	//if err != nil{
-	//	respondWithError(w, http.StatusBadRequest, "Unable to read image data", err)
-	//	return
-	//}
-	
-	// get the videos metadata
-	vidData, err := cfg.db.GetVideo(videoID)
-	if err != nil{
-		respondWithError(w, http.StatusBadRequest, "Unable to fetch the video with provided ID", err)
-		return 
-	}
-
-	if vidData.CreateVideoParams.UserID != userID{
-		respondWithJSON(w, http.StatusUnauthorized, struct{}{})
-		return 
-	}
-	
-	//convert the image data
-	//encodedImageData := base64.StdEncoding.EncodeToString(imageData)
-	//dataUrl := fmt.Sprintf("data:%v;base64,%v", header.Header.Get("Content-Type"), encodedImageData)
-	
-	//get the header extension
-	mediaType, _,  err := mime.ParseMediaType("Content-Type")
-	if err != nil{
-		respondWithError(w, http.StatusBadRequest, "could not parse media type", err)
+	mediaType, _, err := mime.ParseMediaType(header.Header.Get("Content-Type"))
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid Content-Type", err)
 		return
 	}
-	if (mediaType != "image/jpeg" || mediaType != "image/png"){
-		respondWithError(w, http.StatusBadRequest, "wrong media type uploaded", nil)
-		return
-	}
-	ext := strings.Split(header.Header.Get("Content-Type"), "/")[1]
-	fmt.Println(ext)
-	fileName := fmt.Sprintf("%v.%v", vidData.ID, ext)
-	newFilePath := filepath.Join(cfg.assetsRoot, fileName)
-	fmt.Println(newFilePath)
-	f, err := os.Create(fileName)
-	if err != nil{
-		respondWithError(w, http.StatusBadRequest, "Unable to make file at this path", err)
+	if mediaType != "image/jpeg" && mediaType != "image/png" {
+		respondWithError(w, http.StatusBadRequest, "Invalid file type", nil)
 		return
 	}
 
-	//copy the contents of the old file into the new one 
-	_, err = io.Copy(f, file)
-	if err != nil{
-		respondWithError(w, http.StatusBadRequest, "Unable to copy over the file", err)
+	assetPath := getAssetPath(videoID, mediaType)
+	assetDiskPath := cfg.getAssetDiskPath(assetPath)
+
+	dst, err := os.Create(assetDiskPath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to create file on server", err)
 		return
 	}
-	//create the new thumbnail struct 
-	//newThumbnail := thumbnail{data: imageData, mediaType: header.Header.Get("Content-Type")}
-	//videoThumbnails[vidData.ID] = newThumbnail
-	newThumbnail := fmt.Sprintf("http://localhost:%v/%v", cfg.port, newFilePath)
-	fmt.Println(newThumbnail)
-	vidData.ThumbnailURL = &newThumbnail
-	err = cfg.db.UpdateVideo(vidData)
-	
-	if err != nil{
-		respondWithError(w, http.StatusBadRequest, "Unable to update the video", err)
+	defer dst.Close()
+	if _, err = io.Copy(dst, file); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error saving file", err)
 		return
 	}
-	
-	respondWithJSON(w, http.StatusOK, newThumbnail)
+
+	video, err := cfg.db.GetVideo(videoID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't find video", err)
+		return
+	}
+	if video.UserID != userID {
+		respondWithError(w, http.StatusUnauthorized, "Not authorized to update this video", nil)
+		return
+	}
+
+	url := cfg.getAssetURL(assetPath)
+	video.ThumbnailURL = &url
+	err = cfg.db.UpdateVideo(video)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't update video", err)
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, video)
+
 }
+
