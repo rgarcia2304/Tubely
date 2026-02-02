@@ -9,6 +9,9 @@ import (
 	"io"
 	"os"
 	"mime"
+	"crypto/rand"
+	"encoding/base64"
+
 )
 
 func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Request) {
@@ -56,7 +59,11 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	assetPath := getAssetPath(videoID, mediaType)
+	key := make([]byte, 32)
+	rand.Read(key)
+	encode := base64.RawURLEncoding.EncodeToString((key))
+
+	assetPath := getAssetPath(encode, mediaType)
 	assetDiskPath := cfg.getAssetDiskPath(assetPath)
 
 	dst, err := os.Create(assetDiskPath)
