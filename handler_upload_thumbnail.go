@@ -98,4 +98,3 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	respondWithJSON(w, http.StatusOK, video)
 
 }
-
