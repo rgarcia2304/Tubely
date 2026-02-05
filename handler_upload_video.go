@@ -76,30 +76,68 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	
 	defer os.Remove(tempf.Name())
 	defer tempf.Close()
+
 	if _, err := io.Copy(tempf, file); err != nil{
 		respondWithError(w, http.StatusInternalServerError, "Error saving file", err)
 		return
 	}
 
 	tempf.Seek(0, io.SeekStart)
+	
+	
 
 	// after Seek(0, io.SeekStart)
+	
+	ratio, err := getVideoAspectRatio(tempf.Name())
+	if err != nil{
+		respondWithError(w, http.StatusInternalServerError, "Could not get aspect ratio", err)
+		return
+	}
+	
+	//change it into a fast file type
+	_, err = processVideoForFastStart(tempf.Name())
+	if err != nil{
+		respondWithError(w , http.StatusInternalServerError, "Could not covert the file", err)
+		return 
+	}
+	
+	pFileName, err := processVideoForFastStart(tempf.Name())
+	processedFile, err := os.Open(pFileName)
+	
+	defer os.Remove(processedFile.Name())
+	defer processedFile.Close()
+
+	if err != nil{
+		respondWithError(w, http.StatusInternalServerError, "Could not open fast file", err)
+		return
+	}	
+
+	var prefix string
+	if ratio == "16:9"{
+		prefix = "landscape/"
+	}else if ratio == "9:16"{
+		prefix = "portrait/"
+	}else{
+		prefix = "other/"
+	}
+
+
 
 	keyBytes := make([]byte, 32)
 	// what function fills keyBytes with random data?
 	// (hint: from the crypto/rand package)
 	rand.Read(keyBytes)
 
-	randomHex := hex.EncodeToString(keyBytes)
+	randomHex := prefix + hex.EncodeToString(keyBytes)
 
 	// now use both arguments, as your getAssetPath expects
 	key := getAssetPath(randomHex, mediaType)
-
+	
 	//put object
 	_, err = cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
 		Bucket: aws.String(cfg.s3Bucket),
 		Key:    aws.String(key),
-		Body:   tempf,
+		Body:   processedFile,
 		ContentType: aws.String(mediaType),
 	})
 
